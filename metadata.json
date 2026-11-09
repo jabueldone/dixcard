@@ -1,0 +1,6 @@
+{
+  "name": "Dixcard",
+  "description": "Real-time 3D multiplayer online storytelling board game inspired by Dixit, featuring tactile holographic cards, Neomorphic pastel UI, Web Audio soundscapes, and a 30-step garden scoring path.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
