@@ -501,7 +501,7 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
           const isOwnCardInVote =
             st.phase === 'VOTING' && entry.cardId === st.yourSubmittedCardId;
           const isStorytellerTrueCard =
-            st.phase === 'SCORING' && entry.cardId === st.storytellerCardId;
+            Boolean(st.storytellerCardId) && entry.cardId === st.storytellerCardId;
           const isSelectedVote =
             st.phase === 'VOTING' && entry.cardId === st.selectedVoteCardId;
 
@@ -538,9 +538,9 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
 
           // Update border & glow aura
           if (isStorytellerTrueCard) {
-            inst.borderMat.color.setHex(0xf4b942);
-            inst.glowMat.color.setHex(0xf4b942);
-            inst.glowMat.opacity = 0.55;
+            inst.borderMat.color.setHex(0xe07a5f);
+            inst.glowMat.color.setHex(0xe07a5f);
+            inst.glowMat.opacity = 0.7;
           } else if (isSelectedVote) {
             inst.borderMat.color.setHex(0xe07a5f);
             inst.glowMat.color.setHex(0xe07a5f);
@@ -799,6 +799,56 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
     ? cardsPool.find((c) => c.id === inspectedCardId)
     : null;
 
+  const dragScrollState = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
+
+  const handleDragScrollPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+
+    const element = event.currentTarget;
+    dragScrollState.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: element.scrollLeft,
+      startScrollTop: element.scrollTop,
+    };
+
+    element.setPointerCapture(event.pointerId);
+    element.classList.add('is-dragging');
+  };
+
+  const handleDragScrollPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragScrollState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const element = event.currentTarget;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+
+    element.scrollLeft = drag.startScrollLeft - deltaX;
+    element.scrollTop = drag.startScrollTop - deltaY;
+  };
+
+  const handleDragScrollPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragScrollState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    dragScrollState.current = null;
+    event.currentTarget.classList.remove('is-dragging');
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Ignore cases where the pointer was not captured.
+    }
+  };
+
   return (
     <div className="relative w-full h-full overflow-hidden">
       {/* Dedicated isolated WebGL Canvas Mount */}
@@ -807,7 +857,13 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
       {/* Semantic Overlay for Scoring Phase Voter Badges */}
       {phase === 'SCORING' && revealedCards.length > 0 && (
         <div className="absolute inset-0 p-3 sm:p-5 z-10">
-          <div className="neo-surface rounded-2xl p-4 sm:p-6 w-full h-full overflow-y-auto">
+          <div
+            className="neo-surface rounded-2xl p-4 sm:p-6 w-full h-full overflow-y-auto mouse-drag-scroll"
+            onPointerDown={handleDragScrollPointerDown}
+            onPointerMove={handleDragScrollPointerMove}
+            onPointerUp={handleDragScrollPointerEnd}
+            onPointerLeave={handleDragScrollPointerEnd}
+          >
             <div className="grid grid-cols-1 min-[400px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {revealedCards.map((entry) => {
               const cardMeta = cardsPool.find((c) => c.id === entry.cardId);
@@ -822,7 +878,7 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
                   key={entry.cardId}
                   className={`min-w-0 flex flex-col gap-3 p-3 rounded-xl border ${
                     isStorytellerCard
-                      ? 'bg-[#fdf1d4] border-[#d49a3a]'
+                      ? 'bg-[#ffe8df] border-[#e07a5f] shadow-[0_0_0_1px_rgba(224,122,95,0.2)]'
                       : 'bg-[#f4efe9] border-white/80'
                   }`}
                 >
@@ -836,25 +892,25 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
                     <div className="text-xs font-semibold text-[#2b303a] flex flex-wrap items-center gap-1.5 break-words">
                       <span className="min-w-0 break-all">{owner?.nickname || 'Player'}</span>
                       <span>·</span>
-                      <span className={isStorytellerCard ? 'text-[#b57c1e] font-bold' : 'text-[#5e6472]'}>
+                      <span className={isStorytellerCard ? 'text-[#c74d35] font-bold' : 'text-[#5e6472]'}>
                         {isStorytellerCard ? 'Storyteller Card' : 'Decoy'}
                       </span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    <div className="flex flex-wrap items-center justify-start gap-2 mt-1.5">
                       {voters.length === 0 ? (
                         <span className="text-[11px] text-[#5e6472]">No votes</span>
                       ) : (
                         voters.map((v) => (
                           <div
                             key={v.id}
-                            className="flex min-w-0 max-w-full items-center gap-1 bg-white/80 px-1.5 py-0.5 rounded-md"
+                            className="voter-tag"
                           >
                             <img
                               src={v.avatarUrl}
                               alt={v.nickname}
-                              className="w-4 h-4 shrink-0 rounded-full"
+                              className="w-5 h-5 shrink-0 rounded-full border border-[#f4efe9] shadow-sm"
                             />
-                            <span className="text-[11px] font-medium text-[#2b303a] break-all">
+                            <span className="voter-name">
                               {v.nickname}
                             </span>
                           </div>

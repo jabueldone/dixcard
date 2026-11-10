@@ -60,6 +60,67 @@ function getOrCreatePlayerId(): string {
   }
 }
 
+function useMouseDragScroll<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const dragState = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
+
+  const onPointerDown = useCallback((event: React.PointerEvent<T>) => {
+    if (event.button !== 0) return;
+
+    const element = event.currentTarget;
+    dragState.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: element.scrollLeft,
+      startScrollTop: element.scrollTop,
+    };
+
+    element.setPointerCapture(event.pointerId);
+    element.classList.add('is-dragging');
+  }, []);
+
+  const onPointerMove = useCallback((event: React.PointerEvent<T>) => {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const element = event.currentTarget;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+
+    element.scrollLeft = drag.startScrollLeft - deltaX;
+    element.scrollTop = drag.startScrollTop - deltaY;
+  }, []);
+
+  const onPointerUp = useCallback((event: React.PointerEvent<T>) => {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    dragState.current = null;
+    const element = event.currentTarget;
+    element.classList.remove('is-dragging');
+
+    try {
+      element.releasePointerCapture(event.pointerId);
+    } catch {
+      // Ignore cases where the pointer was not captured.
+    }
+  }, []);
+
+  return {
+    ref,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+  };
+}
+
 export default function App() {
   const [playerId] = useState<string>(() => getOrCreatePlayerId());
 
@@ -94,6 +155,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const socketRef = useRef<PartySocket | null>(null);
+  const voteTrayScroll = useMouseDragScroll<HTMLDivElement>();
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -615,9 +677,6 @@ export default function App() {
             {/* Lobby Header & Room Code Strip */}
             <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-[#d5cdc3]/60">
               <div>
-                <div className="text-xs font-semibold text-[#3d7a68]">
-                  Synchronized Multiplayer Lobby
-                </div>
                 <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#2b303a]">
                   Gathering Storytellers ({connectedReadyCount} / 3+ Ready)
                 </h1>
@@ -929,11 +988,7 @@ export default function App() {
                     : isStoryteller
                       ? `You submitted the clue:`
                       : yourSubmittedCardId
-                        ? `Decoy card submitted! Waiting for ${
-                            pendingGuessers.length > 0
-                              ? pendingGuessers.map((p) => p.nickname).join(', ')
-                              : 'remaining guessers'
-                          }...`
+                        ? `Decoy card submitted! Waiting for ${pendingGuessers.length} remaining guessers...`
                         : 'Select a card from your hand that best evokes the clue'}
                 </p>
                 <div className="text-xl sm:text-2xl font-display font-bold text-[#2b303a]">
@@ -1243,7 +1298,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto pt-1 pb-1 -mx-1 px-1">
+                    <div
+                      ref={voteTrayScroll.ref}
+                      onPointerDown={voteTrayScroll.onPointerDown}
+                      onPointerMove={voteTrayScroll.onPointerMove}
+                      onPointerUp={voteTrayScroll.onPointerUp}
+                      onPointerLeave={voteTrayScroll.onPointerUp}
+                      className="mouse-drag-scroll overflow-x-auto pt-1 pb-1 -mx-1 px-1"
+                    >
                       <div className="flex min-w-max gap-2">
                         {revealedCards.map((entry, idx) => {
                           const isOwn = entry.cardId === yourSubmittedCardId;

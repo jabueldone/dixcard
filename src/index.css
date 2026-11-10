@@ -33,6 +33,78 @@
     font-family: 'JetBrains Mono', monospace;
     font-variant-numeric: tabular-nums;
   }
+
+  .voter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.18rem 0.52rem 0.18rem 0.18rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(115, 124, 137, 0.12);
+    box-shadow: 0 6px 12px rgba(91, 93, 105, 0.08);
+    animation: voterJump 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+
+  .voter-tag:nth-child(odd) {
+    animation-delay: 60ms;
+  }
+
+  .voter-tag img {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(244, 239, 233, 0.9);
+    box-shadow: 0 2px 6px rgba(43, 48, 58, 0.12);
+    object-fit: cover;
+    background: #f7f3ee;
+  }
+
+  .voter-name {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    color: #2b303a;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    word-break: break-word;
+  }
+
+  .mouse-drag-scroll {
+    cursor: grab;
+    user-select: none;
+    touch-action: pan-y;
+  }
+
+  .mouse-drag-scroll.is-dragging {
+    cursor: grabbing;
+  }
+}
+
+@keyframes voterJump {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.82);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Soft Pastel Neomorphism Utilities */
