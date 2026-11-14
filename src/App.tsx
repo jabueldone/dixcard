@@ -34,6 +34,7 @@ import { ThreeCardViewport } from './components/ThreeCardViewport';
 import type {
   CardAsset,
   ClientMessage,
+  DeckInfo,
   RoomState,
   ServerMessage,
 } from './types/game';
@@ -134,6 +135,8 @@ export default function App() {
 
   // Dynamic Card Deck State
   const [cardsPool, setCardsPool] = useState<CardAsset[]>([]);
+  const [availableDecks, setAvailableDecks] = useState<DeckInfo[]>([]);
+  const [selectedDeckId, setSelectedDeckId] = useState<string>('dreamscape');
 
   // Authoritative Multiplayer Room State synced via PartySocket
   const [roomState, setRoomState] = useState<RoomState | null>(null);
@@ -166,6 +169,17 @@ export default function App() {
 
   // Load initial dynamic card pool and check URL query param `?room=XXXX`
   useEffect(() => {
+    fetch('/api/decks')
+      .then((r) => r.json())
+      .then((data) => {
+        const decks = Array.isArray(data.decks) ? data.decks : [];
+        if (decks.length) {
+          setAvailableDecks(decks);
+          setSelectedDeckId(data.defaultDeck || decks[0].id);
+        }
+      })
+      .catch(() => {});
+
     fetch('/api/cards')
       .then((r) => r.json())
       .then((data) => {
@@ -306,6 +320,7 @@ export default function App() {
   }, [roomState, playerId]);
 
   const isHost = Boolean(currentPlayer?.isHost);
+  const activeDeckId = roomState?.deckId || selectedDeckId;
   const isStoryteller = Boolean(
     roomState && roomState.storytellerId && roomState.storytellerId === playerId
   );
@@ -771,6 +786,41 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {isHost && availableDecks.length > 0 && (
+              <div className="mt-6 neo-card rounded-2xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5e6472]">
+                      Table Theme
+                    </div>
+                    <div className="text-sm font-semibold text-[#2b303a] mt-1">
+                      {availableDecks.find((deck) => deck.id === activeDeckId)?.name || 'Dreamscape'}
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-3 text-xs font-medium text-[#2b303a]">
+                    <span className="text-[#5e6472]">Deck</span>
+                    <select
+                      value={activeDeckId}
+                      onChange={(event) => {
+                        const nextDeckId = event.target.value;
+                        setSelectedDeckId(nextDeckId);
+                        soundEngine.playClick();
+                        sendMessage({ type: 'SET_ROOM_DECK', deckId: nextDeckId });
+                      }}
+                      className="neo-inset rounded-xl px-3 py-2 text-sm font-semibold text-[#2b303a] bg-transparent focus:outline-none focus:ring-2 focus:ring-[#3d7a68]"
+                    >
+                      {availableDecks.map((deck) => (
+                        <option key={deck.id} value={deck.id}>
+                          {deck.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Bottom Lobby Actions */}
             <div className="pt-5 border-t border-[#d5cdc3]/60 flex flex-wrap items-center justify-between gap-4">

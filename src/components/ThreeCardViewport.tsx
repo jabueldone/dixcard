@@ -108,7 +108,7 @@ function createRoundedCardFaceTexture(
   canvas.height = 900;
   const ctx = canvas.getContext('2d')!;
 
-  const r = 42;
+  const r = 12; // Rounded corner radius
   ctx.clearRect(0, 0, 600, 900);
 
   // Clip rounded rectangle matching TCG card silhouette
@@ -134,11 +134,7 @@ function createRoundedCardFaceTexture(
   ctx.drawImage(img, 0, 0, 600, 900);
   ctx.filter = 'none';
 
-  // Inner pearl TCG border
-  ctx.strokeStyle = isGrayscale ? 'rgba(160, 160, 160, 0.7)' : 'rgba(255, 248, 235, 0.85)';
-  ctx.lineWidth = 18;
-  ctx.stroke();
-
+  // Keep a single beveled card edge; the 3D body already provides the outer border.
   if (isGrayscale) {
     // Subtle "YOUR CARD" ribbon across bottom so player knows why it's disabled
     ctx.fillStyle = 'rgba(43, 48, 58, 0.82)';
@@ -158,11 +154,66 @@ function createRoundedCardFaceTexture(
   return tex;
 }
 
+function createGlossOverlayTexture(maxAnisotropy: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 600;
+  canvas.height = 900;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  gradient.addColorStop(0, 'rgba(255,255,255,0)');
+  gradient.addColorStop(0.12, 'rgba(255,255,255,0.14)');
+  gradient.addColorStop(0.26, 'rgba(245,206,168,0.12)');
+  gradient.addColorStop(0.4, 'rgba(233,153,188,0.08)');
+  gradient.addColorStop(0.56, 'rgba(154,198,255,0.06)');
+  gradient.addColorStop(0.7, 'rgba(255,245,220,0.1)');
+  gradient.addColorStop(0.84, 'rgba(255,255,255,0.12)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const streakGradient = ctx.createLinearGradient(0, 0, canvas.width * 0.78, canvas.height);
+  streakGradient.addColorStop(0, 'rgba(255,255,255,0)');
+  streakGradient.addColorStop(0.12, 'rgba(255,255,255,0.12)');
+  streakGradient.addColorStop(0.3, 'rgba(255, 148, 192, 0.14)');
+  streakGradient.addColorStop(0.46, 'rgba(132, 188, 255, 0.12)');
+  streakGradient.addColorStop(0.66, 'rgba(255, 228, 150, 0.1)');
+  streakGradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+  ctx.fillStyle = streakGradient;
+  ctx.beginPath();
+  ctx.moveTo(90, 0);
+  ctx.lineTo(340, 0);
+  ctx.lineTo(560, 900);
+  ctx.lineTo(210, 900);
+  ctx.closePath();
+  ctx.fill();
+
+  const sparkleGradient = ctx.createRadialGradient(440, 120, 18, 440, 120, 220);
+  sparkleGradient.addColorStop(0, 'rgba(255,255,255,0.4)');
+  sparkleGradient.addColorStop(0.2, 'rgba(255, 182, 212, 0.2)');
+  sparkleGradient.addColorStop(0.45, 'rgba(167, 201, 255, 0.12)');
+  sparkleGradient.addColorStop(0.7, 'rgba(255, 234, 168, 0.08)');
+  sparkleGradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sparkleGradient;
+  ctx.beginPath();
+  ctx.arc(440, 120, 220, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
 interface Card3DInstance {
   cardId: string;
   group: THREE.Group;
   frontMesh: THREE.Mesh;
   frontMat: THREE.MeshPhysicalMaterial;
+  glossMesh: THREE.Mesh;
+  glossMat: THREE.MeshBasicMaterial;
   borderMat: THREE.MeshPhysicalMaterial;
   glowMesh: THREE.Mesh;
   glowMat: THREE.MeshBasicMaterial;
@@ -334,17 +385,17 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
     scene.add(tableGroup);
 
     // Shared Card Geometry (Composite 4-part TCG Card Group)
-    const cardW = 2.2;
-    const cardH = 3.3;
-    const cardR = 0.1;
+    const cardW = 2;
+    const cardH = 3;
+    const cardR = 0.05;
     const cardShape = createRoundedCardShape(cardW, cardH, cardR);
     const extrudeGeo = new THREE.ExtrudeGeometry(cardShape, {
       depth: 0.04,
       bevelEnabled: true,
-      bevelSegments: 3,
+      bevelSegments: 2,
       steps: 1,
-      bevelSize: 0.02,
-      bevelThickness: 0.02,
+      bevelSize: 0.01,
+      bevelThickness: 0.01,
     });
     extrudeGeo.center();
 
@@ -426,16 +477,19 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
       coreMesh.receiveShadow = !isSoftwareGl;
       group.add(coreMesh);
 
-      // Keep the card finish matte and readable; reduce the reflective glare so artwork stays legible.
+      // Glossy but readable: a restrained clearcoat and iridescent sheen keep the art vivid while a soft light streak adds a premium finish.
       const frontMat = new THREE.MeshPhysicalMaterial({
         color: 0xffffff,
-        roughness: 0.82,
-        metalness: 0.02,
-        clearcoat: 0.08,
-        clearcoatRoughness: 0.9,
-        iridescence: 0.04,
-        iridescenceIOR: 1.05,
-        iridescenceThicknessRange: [20, 60],
+        roughness: 0.2,
+        metalness: 0.12,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.12,
+        iridescence: 0.7,
+        iridescenceIOR: 1.45,
+        iridescenceThicknessRange: [12, 110],
+        sheen: 0.1,
+        sheenColor: new THREE.Color('#f7d8a6'),
+        sheenRoughness: 0.46,
         transparent: true,
       });
       loadCardFaceTexture(cardId, isGrayscale, frontMat);
@@ -444,6 +498,19 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
       frontMesh.position.z = 0.042;
       frontMesh.userData = { instanceKey: key, cardId };
       group.add(frontMesh);
+
+      // const glossTex = createGlossOverlayTexture(maxAniso);
+      // const glossMat = new THREE.MeshBasicMaterial({
+      //   map: glossTex,
+      //   transparent: true,
+      //   opacity: 1,
+      //   blending: THREE.AdditiveBlending,
+      //   depthWrite: false,
+      // });
+      // const glossMesh = new THREE.Mesh(facePlaneGeo, glossMat);
+      // glossMesh.position.z = 0.055;
+      // glossMesh.scale.set(1.02, 1.02, 1);
+      // group.add(glossMesh);
 
       // Part 3: Storybook Back Face
       const backMesh = new THREE.Mesh(facePlaneGeo, backMat);
@@ -470,6 +537,8 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
         group,
         frontMesh,
         frontMat,
+        //glossMesh,
+        // glossMat,
         borderMat,
         glowMesh,
         glowMat,
@@ -492,7 +561,7 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
       if (isTablePhase && st.revealedCards.length > 0) {
         const count = st.revealedCards.length;
         const maxPerRow = count <= 4 ? count : Math.ceil(count / 2);
-        const spacingX = count <= 3 ? 2.85 : count === 4 ? 2.45 : 2.35;
+        const spacingX = count <= 3 ? 2.45 : count === 4 ? 2.1 : 2.0;
 
         st.revealedCards.forEach((entry, idx) => {
           const key = `table_${entry.cardId}`;
@@ -534,7 +603,7 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
           // In REVEAL phase, cards beyond revealedCount stay flipped face-down (rotation.y = Math.PI)
           const isFaceUp = st.phase !== 'REVEAL' || idx < st.revealedCount;
           inst.baseRot.set(0, isFaceUp ? 0 : Math.PI, 0);
-          inst.baseScale = count <= 4 ? 1.12 : 0.94;
+          inst.baseScale = count <= 4 ? 1.0 : 0.82;
 
           // Update border & glow aura
           if (isStorytellerTrueCard) {
@@ -560,7 +629,7 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
         const inst = getOrCreateCardInstance(key, st.inspectedCardId, false);
         inst.basePos.set(0, -0.8, 2.2);
         inst.baseRot.set(0.08, 0, 0);
-        inst.baseScale = 1.08;
+        inst.baseScale = 0.96;
         inst.borderMat.color.setHex(0xf4efe9);
         inst.glowMat.opacity = 0;
       }
@@ -753,6 +822,8 @@ export const ThreeCardViewport: React.FC<ThreeCardViewportProps> = ({
 
         inst.group.rotation.x = THREE.MathUtils.damp(inst.group.rotation.x, rotX, 11, delta);
         inst.group.rotation.y = THREE.MathUtils.damp(inst.group.rotation.y, rotY, 9, delta);
+
+        // Glare overlay intentionally disabled.
 
         // Keep the subtle card wash extremely restrained; no central glare point light.
       }

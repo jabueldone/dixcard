@@ -14,6 +14,12 @@ export interface CardAsset {
   url: string;
 }
 
+export interface DeckInfo {
+  id: string;
+  name: string;
+  folder: string;
+}
+
 export interface Player {
   id: string;
   nickname: string;
@@ -66,6 +72,8 @@ export interface RoomState {
   players: Player[];
   revealedCards: RevealedCardEntry[];
   revealedCount: number; // For 1-by-1 3D table reveal animation
+  deckId: string;
+  deckName: string;
   deckCount: number;
   totalCardsInPool: number;
   lastScoreSummary: RoundScoreSummary | null;
@@ -82,6 +90,7 @@ export type ClientMessage =
       avatarSeed: string;
       isHostIntent?: boolean;
     }
+  | { type: 'SET_ROOM_DECK'; deckId: string }
   | { type: 'TOGGLE_READY'; isReady: boolean }
   | { type: 'KICK_PLAYER'; targetPlayerId: string }
   | { type: 'LEAVE_ROOM' }
@@ -109,9 +118,9 @@ export function getDiceBearMarbleUrl(seed: string): string {
   return `https://api.dicebear.com/10.x/marbles/svg?backgroundColor=ffe3ea,e3edff,e2f5e9,fdf1d4,efe6ff&seed=${cleanSeed}`;
 }
 
-export function getCardAssetUrl(cardNumber: number): string {
+export function getCardAssetUrl(cardNumber: number, deckFolder = 'dreamscape'): string {
   const padded = String(cardNumber).padStart(3, '0');
-  return `/assets/dixcard/dixcard_${padded}.webp`;
+  return `/assets/dixcard/${deckFolder}/dixcard_${padded}.webp`;
 }
 
 const cardImageCache = new Map<string, HTMLImageElement>();

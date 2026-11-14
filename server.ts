@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -7,6 +8,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type {
   CardAsset,
   ClientMessage,
+  DeckInfo,
   Player,
   RevealedCardEntry,
   RoomState,
@@ -32,11 +34,53 @@ const PASTEL_PLAYER_COLORS = [
   '#6B8E4E', // Moss Meadow
 ];
 
-/**
- * Fixed card deck: every card is available in /public/assets/dixcard/
- * and follows the naming pattern dixcard_###.webp for 1..100.
- */
-function loadDynamicCardPool(): CardAsset[] {
+const DEFAULT_DECK_CONFIG: { defaultDeck: string; decks: DeckInfo[] } = {
+  defaultDeck: 'dreamscape',
+  decks: [
+    { id: 'dreamscape', name: 'Dreamscape', folder: 'dreamscape' },
+    { id: 'nightmare', name: 'Nightmare', folder: 'nightmares' },
+    { id: 'hope', name: 'Hope', folder: 'hope' },
+  ],
+};
+
+function getDeckCatalog(): { defaultDeck: string; decks: DeckInfo[] } {
+  const configPath = path.join(__dirname, 'public', 'assets', 'decks.json');
+
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<{ defaultDeck: string; decks: DeckInfo[] }>;
+    const decks = Array.isArray(parsed.decks)
+      ? parsed.decks
+          .filter((deck): deck is DeckInfo => Boolean(deck && typeof deck.id === 'string' && typeof deck.name === 'string' && typeof deck.folder === 'string'))
+          .map((deck) => ({ ...deck, id: deck.id.trim(), name: deck.name.trim(), folder: deck.folder.trim() }))
+      : DEFAULT_DECK_CONFIG.decks;
+
+    if (decks.length === 0) {
+      return DEFAULT_DECK_CONFIG;
+    }
+
+    const defaultDeck = decks.find((deck) => deck.id === parsed.defaultDeck)?.id ?? decks[0].id;
+    return {
+      defaultDeck,
+      decks,
+    };
+  } catch {
+    return DEFAULT_DECK_CONFIG;
+  }
+}
+
+function resolveDeck(deckId?: string): DeckInfo {
+  const { defaultDeck, decks } = getDeckCatalog();
+  const preferred = deckId || defaultDeck;
+  return (
+    decks.find((deck) => deck.id === preferred || deck.folder === preferred) ??
+    decks[0] ??
+    DEFAULT_DECK_CONFIG.decks[0]
+  );
+}
+
+function loadDynamicCardPool(deckId?: string): CardAsset[] {
+  const deck = resolveDeck(deckId);
   const cards: CardAsset[] = [];
 
   for (let number = 1; number <= 100; number += 1) {
@@ -44,7 +88,7 @@ function loadDynamicCardPool(): CardAsset[] {
     cards.push({
       id: `dixcard-${padded}`,
       number,
-      url: `/assets/dixcard/dixcard_${padded}.webp`,
+      url: `/assets/dixcard/${deck.folder}/dixcard_${padded}.webp`,
     });
   }
 
@@ -76,6 +120,8 @@ interface GameRoom {
   storytellerId: string | null;
   clue: string;
   players: Player[];
+  deckId: string;
+  cardPool: CardAsset[];
   deck: string[];
   discardPile: string[];
   submissions: InternalSubmission[];
@@ -92,7 +138,8 @@ interface GameRoom {
 const rooms = new Map<string, GameRoom>();
 
 function createEmptyRoom(roomCode: string): GameRoom {
-  globalCardPool = loadDynamicCardPool();
+  const defaultDeck = resolveDeck();
+  const cardPool = loadDynamicCardPool(defaultDeck.id);
   return {
     roomCode,
     phase: 'LOBBY',
@@ -101,7 +148,9 @@ function createEmptyRoom(roomCode: string): GameRoom {
     storytellerId: null,
     clue: '',
     players: [],
-    deck: shuffleArray(globalCardPool.map((c) => c.id)),
+    deckId: defaultDeck.id,
+    cardPool,
+    deck: shuffleArray(cardPool.map((c) => c.id)),
     discardPile: [],
     submissions: [],
     revealedCount: 0,
@@ -134,8 +183,8 @@ function drawCardsFromRoomDeck(room: GameRoom, count: number): string[] {
         room.deck = shuffleArray(availableFromDiscard);
         room.discardPile = [];
       } else {
-        // Fallback: if discard pile is also exhausted, replenish from global pool
-        const freshIds = globalCardPool.map((c) => c.id);
+        // Fallback: if discard pile is also exhausted, replenish from room pool
+        const freshIds = room.cardPool.map((c) => c.id);
         const available = freshIds.filter(
           (id) => !allHeldCards.has(id) && !drawn.includes(id)
         );
@@ -163,6 +212,8 @@ function buildClientRoomState(room: GameRoom): RoomState {
     voterIds: showOwnersAndVoters ? sub.voterIds : [],
   }));
 
+  const deckConfig = resolveDeck(room.deckId);
+
   return {
     roomCode: room.roomCode,
     phase: room.phase,
@@ -189,8 +240,10 @@ function buildClientRoomState(room: GameRoom): RoomState {
     })),
     revealedCards,
     revealedCount: room.revealedCount,
+    deckId: room.deckId,
+    deckName: deckConfig.name,
     deckCount: room.deck.length,
-    totalCardsInPool: globalCardPool.length,
+    totalCardsInPool: room.cardPool.length,
     lastScoreSummary: room.lastScoreSummary,
     winnerIds: room.winnerIds,
     nudgeTimestamp: room.nudgeTimestamp,
@@ -521,11 +574,51 @@ function handleClientMessage(
       break;
     }
 
-    case 'RELOAD_DECK': {
-      globalCardPool = loadDynamicCardPool();
+    case 'SET_ROOM_DECK': {
+      const pid = boundPlayerIdRef.current;
+      if (!pid) return;
+      const host = room.players.find((p) => p.id === pid);
+      if (!host || !host.isHost || room.phase !== 'LOBBY') {
+        sendToSocket(ws, {
+          type: 'ERROR_MSG',
+          message: 'Only the host can change the active deck in the lobby.',
+        });
+        return;
+      }
+
+      const deck = resolveDeck(msg.deckId);
+      room.deckId = deck.id;
+      room.cardPool = loadDynamicCardPool(deck.id);
+      room.deck = shuffleArray(room.cardPool.map((c) => c.id));
+      room.discardPile = [];
+      room.submissions = [];
+      room.revealedCount = 0;
+      room.lastScoreSummary = null;
+      room.winnerIds = [];
+
+      for (const p of room.players) {
+        p.hand = [];
+        p.submittedCardId = null;
+        p.votedCardId = null;
+        p.hasSubmitted = false;
+        p.hasVoted = false;
+        p.roundDelta = 0;
+      }
+
       broadcastToRoom(room, {
         type: 'CARDS_POOL_UPDATED',
-        cards: globalCardPool,
+        cards: room.cardPool,
+      });
+      broadcastRoomState(room);
+      break;
+    }
+
+    case 'RELOAD_DECK': {
+      room.cardPool = loadDynamicCardPool(room.deckId);
+      room.deck = shuffleArray(room.cardPool.map((c) => c.id));
+      broadcastToRoom(room, {
+        type: 'CARDS_POOL_UPDATED',
+        cards: room.cardPool,
       });
       broadcastRoomState(room);
       break;
@@ -546,8 +639,8 @@ function handleClientMessage(
         return;
       }
 
-      globalCardPool = loadDynamicCardPool();
-      room.deck = shuffleArray(globalCardPool.map((c) => c.id));
+      room.cardPool = loadDynamicCardPool(room.deckId);
+      room.deck = shuffleArray(room.cardPool.map((c) => c.id));
       room.discardPile = [];
       room.round = 0;
       room.winnerIds = [];
@@ -835,8 +928,8 @@ function handleClientMessage(
     case 'PLAY_AGAIN': {
       const pid = boundPlayerIdRef.current;
       if (!pid) return;
-      globalCardPool = loadDynamicCardPool();
-      room.deck = shuffleArray(globalCardPool.map((c) => c.id));
+      room.cardPool = loadDynamicCardPool(room.deckId);
+      room.deck = shuffleArray(room.cardPool.map((c) => c.id));
       room.discardPile = [];
       room.round = 0;
       room.winnerIds = [];
@@ -862,6 +955,11 @@ async function startServer() {
   app.use(express.static(path.join(__dirname, 'public')));
 
   // Dynamic Card Deck REST API
+  app.get('/api/decks', (_req, res) => {
+    const config = getDeckCatalog();
+    res.json(config);
+  });
+
   app.get('/api/cards', (_req, res) => {
     globalCardPool = loadDynamicCardPool();
     res.json({
@@ -912,7 +1010,7 @@ async function startServer() {
     // Send latest card pool immediately on connect
     sendToSocket(ws, {
       type: 'CARDS_POOL_UPDATED',
-      cards: globalCardPool,
+      cards: room.cardPool,
     });
 
     ws.on('message', (raw) => {

@@ -1,0 +1,8 @@
+{
+  "defaultDeck": "dreamscape",
+  "decks": [
+    { "id": "dreamscape", "name": "Dreamscape", "folder": "dreamscape" },
+    { "id": "nightmare", "name": "Nightmare", "folder": "nightmares" },
+    { "id": "hope", "name": "Hope", "folder": "hope" }
+  ]
+}
